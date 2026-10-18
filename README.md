@@ -20,7 +20,9 @@ Nextflow DSL2 pipeline that takes scRNA-seq data from raw sequencing archives (f
 
 ## Graphical Workflow
 
-[![](https://raw.githubusercontent.com/EspressoKris/xRAFT-scRNA/main/docs/images/pipeline_map.svg)](https://github.com/EspressoKris/xRAFT-scRNA/blob/main/docs/images/pipeline_map.svg)
+<p align="center">
+  <a href="docs/images/pipeline_map.svg"><img src="docs/images/pipeline_map.svg" width="100%" alt="Graphical workflow"></a>
+</p>
 
 Four lines show the combinations the sample sheet allows: raw archives or existing FASTQs, pooled or single-donor libraries. Filled stations run by default; hollow stations (Extract, Souporcell) run only when the sample sheet asks for them. The terminal station writes a Seurat `.rds`, an AnnData `.h5ad`, or both, according to `params.output_format`.
 
@@ -42,7 +44,9 @@ One subworkflow per step in `subworkflows/`:
 
 Measured with Slurm accounting over 20 runs on the lab cluster (16 CPUs, 96 GB for Cell Ranger and Souporcell; 4 CPUs, 24 GB, one GPU for CellBender). Queue time excluded.
 
-![Run time per step and end to end](docs/images/runtime.png)
+<p align="center">
+  <img src="docs/images/runtime.png" width="85%" alt="Run time per step and end to end">
+</p>
 
 | Step | Median | Range |
 | --- | --- | --- |
