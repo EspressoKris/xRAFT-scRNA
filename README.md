@@ -50,7 +50,7 @@ Measured with Slurm accounting over 20 runs on the lab cluster (16 CPUs, 96 GB f
 
 **End to end:** a single-donor library in about 4.5 h, a pooled library in about 8.5 h (range 5 to 12.5 h, n = 10). Libraries run in parallel: eight pooled libraries finished overnight, in 13 h.
 
-## How to run it (no coding needed)
+## How to run it
 
 You need three things: your sequencing data on the cluster, a sample sheet, and one command.
 
@@ -86,14 +86,20 @@ The objects hold raw and CellBender-corrected counts, with the donor assignment 
 
 **If something goes wrong,** submit the same command again. The pipeline sees which steps already finished and only reruns what is missing. The per-step logs are in the `logs/` folder, and `reports/pipeline_report.html` shows what ran and how long it took.
 
-<details>
-<summary>For the person setting it up on a new cluster</summary>
+## Dependencies
 
-Requirements: Nextflow 25.04 or later with a Slurm executor; Cell Ranger 9.0 or later; Apptainer or Singularity for the containerised Souporcell and CellBender steps; R 4.4 or later with Seurat and scCustomize for Seurat output; Python 3.10 or later with Scanpy and anndata for AnnData output; a GPU partition for CellBender; a Cell Ranger transcriptome reference, a reference FASTA and a common-variants VCF for Souporcell.
+| Component | Version | Used for |
+| --- | --- | --- |
+| Nextflow | 25.04 or later, Slurm executor | Workflow engine |
+| Cell Ranger | 9.0 or later | Alignment and counting |
+| Apptainer or Singularity | any recent | Containers for Souporcell and CellBender |
+| CellBender | container, GPU | Ambient-RNA removal |
+| Souporcell | container | Genetic demultiplexing of pooled libraries |
+| R | 4.4 or later, with Seurat and scCustomize | Seurat object output |
+| Python | 3.10 or later, with Scanpy and anndata | AnnData object output |
+| References | Cell Ranger transcriptome, reference FASTA, common-variants VCF | Counting and Souporcell |
 
-Set the module names in `start_pipeline.sh` and `nextflow.config`, the result directories and references in [nextflow.config](nextflow.config) (`params.samplesheet`, `params.cellranger_results`, `params.souporcell_results`, `params.cellbender_results`, `params.seurat_results`, `params.anndata_results`, `params.transcriptome`, `params.ref_fasta`, `params.common_variants`, `params.logs_dir`), and map the Slurm labels `basic`, `build`, `long` and `gpu` to your partitions. The wrapper runs Nextflow from a job-specific scratch directory with `-resume` and copies `.nextflow.log` back when the run finishes; `nextflow run main.nf -resume` works too. Use `clean_nf_logs.sh` to remove old `.nextflow.log*` files.
-
-</details>
+Module names are set in `start_pipeline.sh` and `nextflow.config`. Result directories and references live in [nextflow.config](nextflow.config) (`params.samplesheet`, `params.cellranger_results`, `params.souporcell_results`, `params.cellbender_results`, `params.seurat_results`, `params.anndata_results`, `params.transcriptome`, `params.ref_fasta`, `params.common_variants`, `params.logs_dir`); map the Slurm labels `basic`, `build`, `long` and `gpu` to your partitions. The wrapper runs Nextflow from a job-specific scratch directory with `-resume` and copies `.nextflow.log` back when the run finishes; `nextflow run main.nf -resume` works too. Use `clean_nf_logs.sh` to remove old `.nextflow.log*` files.
 
 ---
 
