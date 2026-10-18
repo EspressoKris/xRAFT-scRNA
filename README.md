@@ -1,111 +1,105 @@
-# Pipeline_Nextflow_scRNAseq
+# xRAFT-scRNA: 10x-express RAw FASTQ To single-cell RNA-seq objects
 
-Nextflow DSL2 pipeline for scRNA-seq processing on Slurm. It supports
-optional fastq extraction, CellRanger count, Souporcell demultiplexing,
-CellBender ambient RNA removal, and Seurat object creation.
+# Project information:
 
-## Workflow overview
-1. Extract fastqs from raw tar files (optional) - e.g. what provided by Novogene
-2. Build CellRanger libraries CSV (auto-detects fastq prefixes)
-3. Run CellRanger count
-4. Run Souporcell (only when `souporcell_k > 1`)
-5. Run CellBender (GPU)
-6. Create Seurat object (RNA + RNA_cellbender assays, Souporcell metadata)
+![Static Badge](https://img.shields.io/badge/Nextflow-25.04-23aa62?style=flat&logo=nextflow) ![Static Badge](https://img.shields.io/badge/Cell_Ranger-9.0-0b5fa5?style=flat) ![Static Badge](https://img.shields.io/badge/R-4.4-276DC3?style=flat&logo=r) ![Static Badge](https://img.shields.io/badge/Slurm-executor-5c5c5c?style=flat) ![Static Badge](https://img.shields.io/badge/Apptainer-containers-e8834a?style=flat)
 
-Subworkflows are in `subworkflows/`:
-- `extraction.nf`
-- `cellranger_libraries.nf`
-- `cellranger_count.nf`
-- `souporcell.nf`
-- `cellbender.nf`
-- `create_seurat_object.nf`
+---
 
-## Requirements
-- Nextflow (module `nextflow/25.04.7` used in `start_pipeline.sh`)
-- Slurm executor
-- CellRanger module `cellranger/9.0.0`
-- Apptainer/Singularity for containerized Souporcell and CellBender
-- R module `R-base/4.4.1` with Seurat + scCustomize available
-- CellRanger reference (`params.transcriptome`)
-- Reference fasta (`params.ref_fasta`)
-- Common variants VCF at `resources/common_variants_grch38.fixed.vcf`
+## General Description
 
-## Inputs
-### Sample sheet
-Default: `data/sample_sheet.csv`
+**Author:** Kristian Gurashi (kristian.gurashi@gmail.com)
 
-Required columns:
-- `library_id`: Unique ID for each library (also the folder name inside tars)
-- `fastq_dir`: Output directory for fastqs (or existing fastq dir)
+**Pipeline:** xRAFT-scRNA: 10x-express RAw FASTQ To single-cell RNA-seq objects
 
-Optional columns:
-- `Raw_Data`: Semicolon-separated tar paths for raw data extraction. If empty,
-  the pipeline assumes fastqs already exist in `fastq_dir`.
-- `souporcell_k`: Integer. Souporcell runs only when `> 1`.
+**Scope:** 10x Genomics single-cell RNA-seq, from raw sequencing archives to analysis-ready Seurat (R) and AnnData (Scanpy, Python) objects
 
-Other columns (e.g., `experiment`, `batch_10x`) are carried through for
-bookkeeping but not used directly in `main.nf`.
+Nextflow DSL2 pipeline that takes scRNA-seq data from raw sequencing archives (for example as delivered by Novogene) or existing FASTQs to analysis-ready single-cell objects, in one unattended run on a Slurm cluster. It covers FASTQ extraction, Cell Ranger count, Souporcell genetic demultiplexing for pooled libraries, CellBender ambient-RNA removal, and object creation for either ecosystem: a Seurat object (`.rds`) for R or an AnnData object (`.h5ad`) for Scanpy, or both. Steps whose outputs already exist are skipped, so a failed or extended run resumes where it stopped.
 
-## Configuration
-Edit [nextflow.config](nextflow.config) to set paths and resources:
-- `params.samplesheet`
-- `params.cellranger_libraries`, `params.cellranger_results`
-- `params.souporcell_results`, `params.cellbender_results`,
-  `params.seurat_results`
-- `params.transcriptome`, `params.ref_fasta`
-- `params.logs_dir`
+**Why?** Every 10x project begins with the same manual stage: extract and verify archives, run Cell Ranger, remove ambient RNA, demultiplex pooled donors, build an object. Done by hand it is slow, inconsistent and not reproducible. nf-core/scrnaseq skips archive extraction and genetic demultiplexing; xRAFT-scRNA runs exactly these steps from one command and one sample sheet, and returns the same object every time, in R or Python.
 
-The pipeline is configured for Slurm with labels for `basic`, `build`, `long`,
-and `gpu`. Reports are written to `reports/` under the launch directory.
+## Graphical Workflow
 
-## Run
-Typical Slurm submission uses the wrapper:
+[![](https://raw.githubusercontent.com/EspressoKris/xRAFT-scRNA/main/docs/images/pipeline_map.svg)](https://github.com/EspressoKris/xRAFT-scRNA/blob/main/docs/images/pipeline_map.svg)
+
+Four lines show the combinations the sample sheet allows: raw archives or existing FASTQs, pooled or single-donor libraries. Filled stations run by default; hollow stations (Extract, Souporcell) run only when the sample sheet asks for them. The terminal station writes a Seurat `.rds`, an AnnData `.h5ad`, or both, according to `params.output_format`.
+
+## Content
+
+One subworkflow per step in `subworkflows/`:
+
+| Step | Subworkflow | Runs when |
+| --- | --- | --- |
+| 1. Extract FASTQs from tar archives (e.g. Novogene), with MD5 verification | `extraction.nf` | `Raw_Data` is set |
+| 2. Build the Cell Ranger libraries CSV (auto-detects FASTQ prefixes) | `cellranger_libraries.nf` | always |
+| 3. Cell Ranger count | `cellranger_count.nf` | always |
+| 4. Souporcell genetic demultiplexing | `souporcell.nf` | `souporcell_k > 1` |
+| 5. CellBender ambient-RNA removal (GPU) | `cellbender.nf` | always |
+| 6. Seurat object (RNA + RNA_cellbender assays, Souporcell metadata) | `create_seurat_object.nf` | `output_format` is `seurat` or `both` |
+| 7. AnnData object (raw and CellBender layers, Souporcell metadata) | `create_anndata_object.nf` | `output_format` is `scanpy` or `both` |
+
+## Run time
+
+Measured with Slurm accounting over 20 runs on the lab cluster (16 CPUs, 96 GB for Cell Ranger and Souporcell; 4 CPUs, 24 GB, one GPU for CellBender). Queue time excluded.
+
+![Run time per step and end to end](docs/images/runtime.png)
+
+| Step | Median | Range |
+| --- | --- | --- |
+| Cell Ranger count | 3 h 40 min | 1.5 to 6 h |
+| Souporcell (pooled libraries only) | 4 h 15 min | 2.7 to 6.6 h |
+| CellBender (GPU) | 1 h | 0.5 to 1.7 h |
+| Seurat object | 3 min | 1 to 4 min |
+
+**End to end:** a single-donor library in about 4.5 h, a pooled library in about 8.5 h (range 5 to 12.5 h, n = 10). Libraries run in parallel: eight pooled libraries finished overnight, in 13 h.
+
+## How to run it (no coding needed)
+
+You need three things: your sequencing data on the cluster, a sample sheet, and one command.
+
+**1. Put your data where the pipeline can see it.** Copy the tar archives from the sequencing provider (for example Novogene) into a folder on the cluster, or point to a folder that already holds FASTQ files.
+
+**2. Fill in the sample sheet.** Open `data/sample_sheet.csv` in Excel or a text editor. One row per library, four columns:
+
+| Column | What to write | Example |
+| --- | --- | --- |
+| `library_id` | A name for the library (the same name as its folder inside the archive) | `EGO_12` |
+| `fastq_dir` | Where the FASTQs should go, or already are | `/data/fastq/EGO_12` |
+| `Raw_Data` | The archive file(s) to extract, separated by `;`. Leave empty if your FASTQs already exist | `/data/raw/EGO_12.tar` |
+| `souporcell_k` | How many donors were pooled in this library. Write `1` or leave empty if it is a single donor | `4` |
+
+Any extra columns you add (for example `experiment` or `batch_10x`) are kept and copied into the final object.
+
+**3. Choose your output.** In `nextflow.config`, set `params.output_format` to `seurat` (R), `scanpy` (Python) or `both`. Everything else in that file is set up for the lab cluster; you only need to touch it if you want results in a different folder.
+
+**4. Run.** From the pipeline folder:
 
 ```bash
 sbatch start_pipeline.sh
 ```
 
-This wrapper runs:
+Then log off. The pipeline queues every step on Slurm, runs the libraries in parallel and finishes on its own; a pooled library takes around 8 hours, so a batch is usually ready the next morning.
 
-```bash
-nextflow run /project/ANGEL/shared/Pipeline/main.nf -resume -w /project/ANGEL/shared/Pipeline/work
-```
+**5. Collect your objects.** Each library gets its own folder with the finished object, ready to load:
 
-The wrapper runs Nextflow from a local scratch directory
-`/tmp/${USER}/nf_run_${SLURM_JOB_ID}` and copies `.nextflow.log` back to the
-pipeline folder after completion.
+- Seurat: `<seurat_results>/<library_id>/<library_id>_seurat.rds`
+- AnnData: `<anndata_results>/<library_id>/<library_id>.h5ad`
 
-## Outputs
-- Fastqs are extracted to `fastq_dir` from the sample sheet.
-- CellRanger outputs are published to `params.cellranger_results/<library_id>/outs`.
-- Souporcell outputs are published to `params.souporcell_results/<library_id>/`.
-- CellBender outputs are published to `params.cellbender_results/<library_id>/`.
-- Seurat object is written to `params.seurat_results/<library_id>/<library_id>_seurat.rds`.
+The objects hold raw and CellBender-corrected counts, with the donor assignment for pooled libraries, so analysis can start straight away.
 
-## Notes on pipeline behavior
-- Extraction verifies MD5s when `MD5.txt` is available and writes an
-    `.extraction_log` in `fastq_dir`.
-- Libraries CSV creation detects sample prefixes from fastq filenames and
-    writes `.libraries_log_<library_id>` into the libraries folder.
-- CellRanger, Souporcell, and CellBender skip work when outputs already exist
-    and create `.cellranger_count_log_*`, `.souporcell_log_*`,
-    `.cellbender_log_*` files in their output directories.
-- Seurat creation reads CellRanger filtered counts and CellBender filtered h5,
-    adds Souporcell metadata when present, and sets metadata to NA when
-    `souporcell_k` is 1 or missing.
+**If something goes wrong,** submit the same command again. The pipeline sees which steps already finished and only reruns what is missing. The per-step logs are in the `logs/` folder, and `reports/pipeline_report.html` shows what ran and how long it took.
 
-## Logs and reports
-- Nextflow logs: `.nextflow.log*`
-- Slurm logs: `Report-*.out` and `Report-*.err`
-- Reports: `reports/pipeline_report.html`, `reports/timeline.html`,
-  `reports/trace.txt`
+<details>
+<summary>For the person setting it up on a new cluster</summary>
 
-Merged step logs are written to `params.logs_dir`:
-- `01_Extract_raw_data.log`
-- `02_CellRanger_libraries.log`
-- `03_CellRanger_count.log`
-- `04_CellBender.log`
-- `05_Souporcell.log`
-- `create_seurat_object_merged.log`
+Requirements: Nextflow 25.04 or later with a Slurm executor; Cell Ranger 9.0 or later; Apptainer or Singularity for the containerised Souporcell and CellBender steps; R 4.4 or later with Seurat and scCustomize for Seurat output; Python 3.10 or later with Scanpy and anndata for AnnData output; a GPU partition for CellBender; a Cell Ranger transcriptome reference, a reference FASTA and a common-variants VCF for Souporcell.
 
-Use `clean_nf_logs.sh` to remove old `.nextflow.log*` files.
+Set the module names in `start_pipeline.sh` and `nextflow.config`, the result directories and references in [nextflow.config](nextflow.config) (`params.samplesheet`, `params.cellranger_results`, `params.souporcell_results`, `params.cellbender_results`, `params.seurat_results`, `params.anndata_results`, `params.transcriptome`, `params.ref_fasta`, `params.common_variants`, `params.logs_dir`), and map the Slurm labels `basic`, `build`, `long` and `gpu` to your partitions. The wrapper runs Nextflow from a job-specific scratch directory with `-resume` and copies `.nextflow.log` back when the run finishes; `nextflow run main.nf -resume` works too. Use `clean_nf_logs.sh` to remove old `.nextflow.log*` files.
+
+</details>
+
+---
+
+# Networking:
+
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?style=flat&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/kristiangurashi/) [![GitHub](https://img.shields.io/badge/GitHub-181717?style=flat&logo=github&logoColor=white)](https://github.com/EspressoKris)
