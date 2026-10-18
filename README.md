@@ -21,7 +21,7 @@ Nextflow DSL2 pipeline that takes scRNA-seq data from raw sequencing archives (f
 ## Graphical Workflow
 
 <p align="center">
-  <a href="docs/images/pipeline_map.svg"><img src="docs/images/pipeline_map.svg" width="100%" alt="Graphical workflow"></a>
+  <img src="docs/images/pipeline_map.svg" width="100%" alt="Graphical workflow">
 </p>
 
 Four lines show the combinations the sample sheet allows: raw archives or existing FASTQs, pooled or single-donor libraries. Filled stations run by default; hollow stations (Extract, Souporcell) run only when the sample sheet asks for them. The terminal station writes a Seurat `.rds`, an AnnData `.h5ad`, or both, according to `params.output_format`.
@@ -47,13 +47,6 @@ Measured with Slurm accounting over 20 runs on the lab cluster (16 CPUs, 96 GB f
 <p align="center">
   <img src="docs/images/runtime.png" width="85%" alt="Run time per step and end to end">
 </p>
-
-| Step | Median | Range |
-| --- | --- | --- |
-| Cell Ranger count | 3 h 40 min | 1.5 to 6 h |
-| Souporcell (pooled libraries only) | 4 h 15 min | 2.7 to 6.6 h |
-| CellBender (GPU) | 1 h | 0.5 to 1.7 h |
-| Seurat object | 3 min | 1 to 4 min |
 
 **End to end:** a single-donor library in about 4.5 h, a pooled library in about 8.5 h (range 5 to 12.5 h, n = 10). Libraries run in parallel: eight pooled libraries finished overnight, in 13 h.
 
