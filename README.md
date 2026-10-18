@@ -45,7 +45,7 @@ One subworkflow per step in `subworkflows/`:
 Measured with Slurm accounting over 20 runs on the lab cluster (16 CPUs, 96 GB for Cell Ranger and Souporcell; 4 CPUs, 24 GB, one GPU for CellBender). Queue time excluded.
 
 <p align="center">
-  <img src="docs/images/runtime.png" width="85%" alt="Run time per step and end to end">
+  <img src="docs/images/runtime.png" width="100%" alt="Run time per step and end to end">
 </p>
 
 **End to end:** a single-donor library in about 4.5 h, a pooled library in about 8.5 h (range 5 to 12.5 h, n = 10). Libraries run in parallel: eight pooled libraries finished overnight, in 13 h.
