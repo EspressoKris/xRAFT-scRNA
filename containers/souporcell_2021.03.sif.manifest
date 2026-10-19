@@ -1,9 +1,0 @@
-IMAGE=docker://cumulusprod/souporcell:2021.03
-PULLED=2026-10-19 17:56:47
-IMAGE_DIGEST=sha256:fae96c67fe0feee9980928731874a96a2b813f9a78e0ce41b92ec8e66ba93678
-IMAGE_DIGEST_SHORT=fae96c67fe0f
-SIF=souporcell_2021.03.sif
-SIF_SHA256=3ceb6707d2b06150f6076fbc30770b3218c1981b7709ac3cdf677ac4f6ce2a44
-SIF_SIZE=1.5G
-HUB_URL=https://hub.docker.com/layers/cumulusprod/souporcell/2021.03/images/sha256-fae96c67fe0feee9980928731874a96a2b813f9a78e0ce41b92ec8e66ba93678
-NOTE=

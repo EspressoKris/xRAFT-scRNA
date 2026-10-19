@@ -17,8 +17,7 @@ sps-*/
 
 # Large bundles
 *.tar.gz
-containers/*
-!containers/*.manifest
+containers/
 resources/
 
 # Test outputs

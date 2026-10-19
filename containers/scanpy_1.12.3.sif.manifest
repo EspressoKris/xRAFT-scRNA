@@ -1,9 +1,0 @@
-IMAGE=docker://gcfntnu/scanpy:1.12.3
-PULLED=2026-10-19 17:41:41
-IMAGE_DIGEST=sha256:b386644bbe0ec72ea9b55fd4da9bf03f676b8247d1b89959dadce4c85e9ff309
-IMAGE_DIGEST_SHORT=b386644bbe0e
-SIF=scanpy_1.12.3.sif
-SIF_SHA256=56eefafadaebf2a12be3e6e1a87f3566c4b4cce8e457c3ab4d3a8b9c8497dab5
-SIF_SIZE=721M
-HUB_URL=https://hub.docker.com/layers/gcfntnu/scanpy/1.12.3/images/sha256-b386644bbe0ec72ea9b55fd4da9bf03f676b8247d1b89959dadce4c85e9ff309
-NOTE=
