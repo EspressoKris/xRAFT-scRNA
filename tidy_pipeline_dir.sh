@@ -4,7 +4,7 @@
 # directory only holds the pipeline itself:
 #
 #   Report-*.out / *.out, *.err  →  slurm/
-#   sps-*.tar.gz (Slurm profiling) →  slurm/sps/
+#   sps-*.tar.gz, sps-*/ (profiling) →  slurm/sps/
 #   .nextflow.log*               →  run/
 #   containers/*.sif without a .manifest get one (digest unknown, checksum recorded)
 #
@@ -22,8 +22,9 @@ for f in Report-*.out Report-*.err *.out *.err; do
     [ -f "$f" ] || continue
     mv -f "$f" slurm/ && moved=$((moved + 1))
 done
-for f in sps-*.tar.gz; do
-    mv -f "$f" slurm/sps/ && moved=$((moved + 1))
+for f in sps-*.tar.gz sps-*/; do
+    [ -e "$f" ] || continue
+    mv -f "${f%/}" slurm/sps/ && moved=$((moved + 1))
 done
 for f in .nextflow.log*; do
     mv -f "$f" run/ && moved=$((moved + 1))

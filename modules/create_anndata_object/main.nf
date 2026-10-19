@@ -15,8 +15,11 @@ process BUILD_SCANPY_SIF {
 
     script:
     """
-    export APPTAINER_CACHEDIR="${projectDir}/containers/.apptainer_cache"
-    export APPTAINER_TMPDIR="${projectDir}/containers/.apptainer_tmp"
+    # Per-task cache/tmp: the four SIF builds run concurrently, and a shared
+    # cache that each one wipes on completion deletes blobs the others are
+    # still downloading. The task work dir is unique per task and per retry.
+    export APPTAINER_CACHEDIR="\$PWD/.apptainer_cache"
+    export APPTAINER_TMPDIR="\$PWD/.apptainer_tmp"
     mkdir -p \${APPTAINER_CACHEDIR} \${APPTAINER_TMPDIR}
 
     apptainer pull ${scanpy_sif} ${params.scanpy_container}

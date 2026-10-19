@@ -13,6 +13,7 @@ slurm/
 *.out
 *.err
 sps-*.tar.gz
+sps-*/
 
 # Large bundles
 *.tar.gz

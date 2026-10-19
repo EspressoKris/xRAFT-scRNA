@@ -37,15 +37,17 @@ if [ "$MODE" = "container" ]; then
     SCANPY_IMG=$(cfg_image scanpy_container); SCANPY_SIF=$(sif_name scanpy "$SCANPY_IMG")
     SEURAT_IMG=$(cfg_image seurat_container); SEURAT_SIF=$(sif_name seurat "$SEURAT_IMG")
     mkdir -p "${ROOT}/containers"
+    export APPTAINER_CACHEDIR="${OUT}/.apptainer_cache" APPTAINER_TMPDIR="${OUT}/.apptainer_tmp"
+    mkdir -p "$APPTAINER_CACHEDIR" "$APPTAINER_TMPDIR"
     if [ ! -f "$SCANPY_SIF" ]; then
         apptainer pull "$SCANPY_SIF" "$SCANPY_IMG"
-        bash "${ROOT}/modules/containers/record_digest.sh" "$SCANPY_SIF" "$SCANPY_IMG" ""
+        bash "${ROOT}/modules/containers/record_digest.sh" "$SCANPY_SIF" "$SCANPY_IMG" "$APPTAINER_CACHEDIR"
     fi
     PY="apptainer exec --bind ${ROOT} ${SCANPY_SIF} python3"
     if $RUN_R; then
         if [ ! -f "$SEURAT_SIF" ]; then
             apptainer pull "$SEURAT_SIF" "$SEURAT_IMG"
-            bash "${ROOT}/modules/containers/record_digest.sh" "$SEURAT_SIF" "$SEURAT_IMG" ""
+            bash "${ROOT}/modules/containers/record_digest.sh" "$SEURAT_SIF" "$SEURAT_IMG" "$APPTAINER_CACHEDIR"
         fi
         R="apptainer exec --bind ${ROOT} ${SEURAT_SIF} Rscript"
     fi
