@@ -1,16 +1,25 @@
-# Nextflow work and caches
+# Nextflow work, launch directory (resume cache + .nextflow.log*) and reports
 work/
+run/
+.nextflow/
 .nextflow.log*
-
-# Runtime artifacts
-logs/
 reports/
 
-# Large bundles and output dumps
-*.err
-*.out
-*.tar.gz
+# Per-step logs written by the pipeline
+logs/
 
-# User-requested large directories
+# Slurm job logs and profiling dumps (filed by start_pipeline.sh / tidy_pipeline_dir.sh)
+slurm/
+*.out
+*.err
+sps-*.tar.gz
+
+# Large bundles
+*.tar.gz
+containers/*
+!containers/*.manifest
 resources/
-containers/
+
+# Test outputs
+tests/output/
+__pycache__/

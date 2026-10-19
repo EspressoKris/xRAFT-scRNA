@@ -1,10 +1,15 @@
+// SIF name carries the image tag, so changing params.souporcell_container pulls a
+// new file instead of silently reusing the old one.
+def souporcell_sif = "souporcell_" + params.souporcell_container.tokenize(':').last().replaceAll(/[^A-Za-z0-9._-]/, '_') + ".sif"
+
 process BUILD_SOUPORCELL_SIF {
 
     label 'build'
     storeDir "${projectDir}/containers"
 
     output:
-    path("souporcell_latest.sif"), emit: sif
+    path("${souporcell_sif}"), emit: sif
+    path("${souporcell_sif}.manifest"), emit: manifest
 
     script:
     """
@@ -12,7 +17,10 @@ process BUILD_SOUPORCELL_SIF {
     export APPTAINER_TMPDIR="${projectDir}/containers/.apptainer_tmp"
     mkdir -p \${APPTAINER_CACHEDIR} \${APPTAINER_TMPDIR}
 
-    singularity pull souporcell_latest.sif shub://wheaton5/souporcell
+    singularity pull ${souporcell_sif} ${params.souporcell_container}
+
+    # Record image digest + SIF checksum so "latest" is pinned to a known build
+    bash ${projectDir}/modules/containers/record_digest.sh ${souporcell_sif} "${params.souporcell_container}" "\${APPTAINER_CACHEDIR}"
 
     # Clean up cache after successful build
     rm -rf \${APPTAINER_CACHEDIR} \${APPTAINER_TMPDIR}
@@ -39,50 +47,6 @@ process SOUPORCELL_DEMUX {
     """
     set -euo pipefail
 
-    SC_LOG="${souporcell_dir}/.souporcell_log_${library_id}"
-
-    # ── Skip ONLY if output already exists on disk ───────────────────────
-    if [ -d "${output_dir}" ] && \
-       [ -f "${output_dir}/clusters.tsv" ]; then
-
-        EXISTING_DATE=\$(stat -c '%y' "${output_dir}/clusters.tsv" 2>/dev/null | cut -d' ' -f1)
-        EXISTING_SIZE=\$(du -sh "${output_dir}" 2>/dev/null | cut -f1)
-
-        echo "============================================" | tee ${library_id}_souporcell.log
-        echo "  SOUPORCELL: ${library_id}" | tee -a ${library_id}_souporcell.log
-        echo "  \$(date '+%Y-%m-%d %H:%M:%S')" | tee -a ${library_id}_souporcell.log
-        echo "============================================" | tee -a ${library_id}_souporcell.log
-        echo "" | tee -a ${library_id}_souporcell.log
-        echo "[SKIP] Souporcell output already exists on disk" | tee -a ${library_id}_souporcell.log
-        echo "  Path     : ${output_dir}" | tee -a ${library_id}_souporcell.log
-        echo "  Date     : \${EXISTING_DATE}" | tee -a ${library_id}_souporcell.log
-        echo "  Size     : \${EXISTING_SIZE}" | tee -a ${library_id}_souporcell.log
-        echo "  Clusters : present" | tee -a ${library_id}_souporcell.log
-        echo "============================================" | tee -a ${library_id}_souporcell.log
-
-        # Create expected output for Nextflow
-        ln -s ${output_dir} ${library_id}_souporcell
-
-        # Ensure success log exists
-        if [ ! -f "\$SC_LOG" ] || ! grep -q "STATUS=SUCCESS" "\$SC_LOG"; then
-            cat > "\$SC_LOG" <<EOF
-STATUS=SUCCESS
-DATE=\$(date '+%Y-%m-%d %H:%M:%S')
-LIBRARY_ID=${library_id}
-NOTE=Retroactively logged from existing output
-OUTPUT_DIR=${output_dir}
-EOF
-        fi
-
-        exit 0
-    fi
-
-    # ── If skip log exists but output is missing, invalidate it ──────────
-    if [ -f "\$SC_LOG" ] && grep -q "STATUS=SUCCESS" "\$SC_LOG"; then
-        echo "[WARNING] Success log exists but output is missing — re-running" | tee ${library_id}_souporcell.log
-        rm -f "\$SC_LOG"
-    fi
-
     # ── Validate inputs ──────────────────────────────────────────────────
     if [ ! -f "${bam}" ]; then
         echo "[ERROR] BAM file not found: ${bam}" | tee ${library_id}_souporcell.log
@@ -96,6 +60,11 @@ EOF
         exit 1
     fi
 
+    if [ ! -f "${common_variants}" ]; then
+        echo "[ERROR] Common-variants VCF not found: ${common_variants}" | tee ${library_id}_souporcell.log
+        exit 1
+    fi
+
     # ── Full run ─────────────────────────────────────────────────────────
     {
     echo "============================================"
@@ -104,26 +73,10 @@ EOF
     echo "============================================"
     echo ""
 
-    if [ -f "\$SC_LOG" ]; then
-        echo "[WARNING] Previous Souporcell run was not successful"
-        echo "[INFO] Re-running..."
-        cat "\$SC_LOG"
-        echo ""
-    fi
-
     if [ -d "${output_dir}" ]; then
-        EXISTING_DATE=\$(stat -c '%y' "${output_dir}" 2>/dev/null | cut -d' ' -f1)
-        EXISTING_SIZE=\$(du -sh "${output_dir}" 2>/dev/null | cut -f1)
-        echo "[WARNING] Existing Souporcell output found (incomplete):"
-        echo "  Path : ${output_dir}"
-        echo "  Date : \${EXISTING_DATE}"
-        echo "  Size : \${EXISTING_SIZE}"
+        echo "[WARNING] Existing Souporcell output at ${output_dir} will be overwritten"
         echo ""
-        echo "[INFO] This run will overwrite the existing output"
-    else
-        echo "[INFO] No existing output found at ${output_dir}"
     fi
-    echo ""
 
     echo "[INFO] Run parameters:"
     echo "  -i (BAM)         : ${bam}"
@@ -141,7 +94,7 @@ EOF
     echo "============================================"
     echo ""
 
-    singularity exec --bind /ceph,/project,/ceph-fast/databank:/databank ${sif} souporcell_pipeline.py \\
+    singularity exec --bind ${params.container_binds} ${sif} souporcell_pipeline.py \\
         -i ${bam} \\
         -b ${barcodes} \\
         -f ${ref_fasta} \\
@@ -167,29 +120,13 @@ EOF
     echo "[INFO] Cleaned up intermediate BAM/BAI files"
     echo ""
 
-    # Copy results to final output directory
+    # Publish results
+    rm -rf ${output_dir}
     mkdir -p ${output_dir}
     cp -r ${library_id}_souporcell/* ${output_dir}/
 
-    OUTPUT_SIZE=\$(du -sh ${output_dir} 2>/dev/null | cut -f1)
-
     echo "[INFO] Results published to: ${output_dir}"
-    echo "[INFO] Total size: \${OUTPUT_SIZE}"
-
-    cat > "\$SC_LOG" <<EOF
-STATUS=SUCCESS
-DATE=\$(date '+%Y-%m-%d %H:%M:%S')
-LIBRARY_ID=${library_id}
-K=${souporcell_k}
-INPUT_BAM=${bam}
-INPUT_BARCODES=${barcodes}
-REF_FASTA=${ref_fasta}
-COMMON_VARIANTS=${common_variants}
-OUTPUT_DIR=${output_dir}
-OUTPUT_SIZE=\${OUTPUT_SIZE}
-EOF
-
-    echo "[INFO] Souporcell log written to \$SC_LOG"
+    echo "[INFO] Total size: \$(du -sh ${output_dir} 2>/dev/null | cut -f1)"
     echo "============================================"
 
     } 2>&1 | tee ${library_id}_souporcell.log
@@ -214,11 +151,11 @@ process MERGE_SOUPORCELL_LOGS {
     echo "================================================================" > 05_Souporcell.log
     echo "  SOUPORCELL REPORT" >> 05_Souporcell.log
     echo "  Generated: \$(date '+%Y-%m-%d %H:%M:%S')" >> 05_Souporcell.log
-    echo "  Samples processed: \$(ls -1 EGO_*_souporcell.log 2>/dev/null | wc -l)" >> 05_Souporcell.log
+    echo "  Samples processed: \$(ls -1 *_souporcell.log 2>/dev/null | wc -l)" >> 05_Souporcell.log
     echo "================================================================" >> 05_Souporcell.log
     echo "" >> 05_Souporcell.log
 
-    for LOG in \$(ls -1 EGO_*_souporcell.log 2>/dev/null | sort); do
+    for LOG in \$(ls -1 *_souporcell.log 2>/dev/null | sort); do
         cat \$LOG >> 05_Souporcell.log
         echo "" >> 05_Souporcell.log
         echo "" >> 05_Souporcell.log

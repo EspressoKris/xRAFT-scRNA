@@ -2,6 +2,8 @@
 
 nextflow.enable.dsl=2
 
+import groovy.json.JsonOutput
+
 // ─── Subworkflows ───────────────────────────────────────────────────────────
 include { EXTRACTION }             from './subworkflows/extraction.nf'
 include { CELLRANGER_LIBRARIES }   from './subworkflows/cellranger_libraries.nf'
@@ -9,14 +11,23 @@ include { CELLRANGER }             from './subworkflows/cellranger_count.nf'
 include { CELLBENDER }             from './subworkflows/cellbender.nf'
 include { SOUPORCELL }             from './subworkflows/souporcell.nf'
 include { CREATE_SEURAT }          from './subworkflows/create_seurat_object.nf'
+include { CREATE_ANNDATA }         from './subworkflows/create_anndata_object.nf'
+include { VALIDATE_OUTPUTS }       from './subworkflows/validate_outputs.nf'
 
 // ─── Parameters ─────────────────────────────────────────────────────────────
-params.samplesheet = "${projectDir}/data/sample_sheet.csv"
+params.samplesheet   = "${projectDir}/data/sample_sheet.csv"
+params.output_format = "both"
+
+def valid_formats = ['seurat', 'scanpy', 'both']
+if (!(params.output_format in valid_formats)) {
+    error "params.output_format must be one of ${valid_formats} (got '${params.output_format}')"
+}
 
 log.info """
 ============================================
-  ANGEL Pipeline
+  xRAFT-scRNA
   Started : ${new java.util.Date()}
+  Output  : ${params.output_format}
   Logs    : ${params.logs_dir}
 ============================================
 """.stripIndent()
@@ -28,6 +39,10 @@ def parse_samplesheet(samplesheet) {
         .splitCsv(header: true, strip: true)
         .filter { row -> row.library_id?.trim() }
 }
+
+// Columns that describe where data lives, not the sample itself.
+// Everything else in the sample sheet is copied into the object metadata.
+def path_columns = ['Raw_Data', 'fastq_dir']
 
 // ─── Workflow ───────────────────────────────────────────────────────────────
 workflow {
@@ -43,8 +58,6 @@ workflow {
 
     EXTRACTION(
         ch_to_extract,
-        params.cellranger_libraries,
-        params.cellranger_results,
         params.logs_dir
     )
 
@@ -66,13 +79,11 @@ workflow {
     CELLRANGER_LIBRARIES(
         ch_fastqs_ready,
         params.cellranger_libraries,
-        params.cellranger_results,
         params.logs_dir
     )
 
     // ── CellRanger Count ────────────────────────────────────────────────
     ch_sampleinfo = ch_all
-        .filter { row -> row.library_id?.trim() }
         .map { row ->
             tuple(row.library_id, params.transcriptome)
         }
@@ -96,6 +107,7 @@ workflow {
         ch_souporcell_info,
         params.cellranger_results,
         params.ref_fasta,
+        params.common_variants,
         params.souporcell_results,
         params.logs_dir
     )
@@ -108,15 +120,63 @@ workflow {
         params.logs_dir
     )
 
-    // ── Create Seurat Object ──────────────────────────────────────────
-    CREATE_SEURAT(
-        CELLRANGER.out.outs,
-        CELLBENDER.out.filtered_h5,
+    // ── Sample-sheet metadata (JSON per library) for the objects ──────
+    ch_metadata = ch_all
+        .map { row ->
+            def meta = row.findAll { k, v -> !(k in path_columns) }
+                          .collectEntries { k, v -> [(k): v?.trim() ?: ""] }
+            tuple(row.library_id, JsonOutput.toJson(meta))
+        }
+
+    // ── Create Seurat Object (.rds) ───────────────────────────────────
+    ch_rds        = Channel.empty()
+    ch_h5ad       = Channel.empty()
+    ch_seurat_sif = Channel.empty()
+    ch_scanpy_sif = Channel.empty()
+
+    if (params.output_format in ['seurat', 'both']) {
+        CREATE_SEURAT(
+            CELLRANGER.out.outs,
+            CELLBENDER.out.filtered_h5,
+            SOUPORCELL.out.results,
+            ch_metadata,
+            params.cellranger_results,
+            params.cellbender_results,
+            params.souporcell_results,
+            params.seurat_results,
+            params.logs_dir
+        )
+        ch_rds        = CREATE_SEURAT.out.rds
+        ch_seurat_sif = CREATE_SEURAT.out.sif
+    }
+
+    // ── Create AnnData Object (.h5ad) ─────────────────────────────────
+    if (params.output_format in ['scanpy', 'both']) {
+        CREATE_ANNDATA(
+            CELLRANGER.out.outs,
+            CELLBENDER.out.filtered_h5,
+            SOUPORCELL.out.results,
+            ch_metadata,
+            params.cellranger_results,
+            params.cellbender_results,
+            params.souporcell_results,
+            params.anndata_results,
+            params.logs_dir
+        )
+        ch_h5ad       = CREATE_ANNDATA.out.h5ad
+        ch_scanpy_sif = CREATE_ANNDATA.out.sif
+    }
+
+    // ── Validate objects (structure, counts vs CellRanger, R/Python agreement)
+    VALIDATE_OUTPUTS(
+        ch_rds,
+        ch_h5ad,
+        ch_seurat_sif,
+        ch_scanpy_sif,
         SOUPORCELL.out.results,
+        ch_metadata,
         params.cellranger_results,
-        params.cellbender_results,
         params.souporcell_results,
-        params.seurat_results,
         params.logs_dir
     )
 }

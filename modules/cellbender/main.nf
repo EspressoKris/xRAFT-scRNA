@@ -1,10 +1,15 @@
+// SIF name carries the image tag, so changing params.cellbender_container pulls a
+// new file instead of silently reusing the old one.
+def cellbender_sif = "cellbender_" + params.cellbender_container.tokenize(':').last().replaceAll(/[^A-Za-z0-9._-]/, '_') + ".sif"
+
 process BUILD_CELLBENDER_SIF {
 
     label 'build'
     storeDir "${projectDir}/containers"
 
     output:
-    path("cellbender_latest.sif"), emit: sif
+    path("${cellbender_sif}"), emit: sif
+    path("${cellbender_sif}.manifest"), emit: manifest
 
     script:
     """
@@ -12,7 +17,10 @@ process BUILD_CELLBENDER_SIF {
     export APPTAINER_TMPDIR="${projectDir}/containers/.apptainer_tmp"
     mkdir -p \${APPTAINER_CACHEDIR} \${APPTAINER_TMPDIR}
 
-    apptainer pull cellbender_latest.sif docker://us.gcr.io/broad-dsde-methods/cellbender:latest
+    apptainer pull ${cellbender_sif} ${params.cellbender_container}
+
+    # Record image digest + SIF checksum so "latest" is pinned to a known build
+    bash ${projectDir}/modules/containers/record_digest.sh ${cellbender_sif} "${params.cellbender_container}" "\${APPTAINER_CACHEDIR}"
 
     # Clean up cache after successful build
     rm -rf \${APPTAINER_CACHEDIR} \${APPTAINER_TMPDIR}
@@ -39,58 +47,10 @@ process CELLBENDER_REMOVE_BACKGROUND {
     """
     set -euo pipefail
 
-    CB_LOG="${cellbender_dir}/.cellbender_log_${library_id}"
-
-    # ── Skip ONLY if output already exists on disk ───────────────────────
-    if [ -d "${output_dir}" ] && \
-       [ -f "${output_dir}/${library_id}_cellbender_output.h5" ] && \
-       [ -f "${output_dir}/${library_id}_cellbender_output_filtered.h5" ]; then
-
-        EXISTING_DATE=\$(stat -c '%y' "${output_dir}/${library_id}_cellbender_output.h5" 2>/dev/null | cut -d' ' -f1)
-        EXISTING_SIZE=\$(du -sh "${output_dir}" 2>/dev/null | cut -f1)
-
-        echo "============================================" | tee ${library_id}_cellbender.log
-        echo "  CELLBENDER: ${library_id}" | tee -a ${library_id}_cellbender.log
-        echo "  \$(date '+%Y-%m-%d %H:%M:%S')" | tee -a ${library_id}_cellbender.log
-        echo "============================================" | tee -a ${library_id}_cellbender.log
-        echo "" | tee -a ${library_id}_cellbender.log
-        echo "[SKIP] CellBender output already exists on disk" | tee -a ${library_id}_cellbender.log
-        echo "  Path     : ${output_dir}" | tee -a ${library_id}_cellbender.log
-        echo "  Date     : \${EXISTING_DATE}" | tee -a ${library_id}_cellbender.log
-        echo "  Size     : \${EXISTING_SIZE}" | tee -a ${library_id}_cellbender.log
-        echo "  Output   : present" | tee -a ${library_id}_cellbender.log
-        echo "  Filtered : present" | tee -a ${library_id}_cellbender.log
-        echo "============================================" | tee -a ${library_id}_cellbender.log
-
-        # Create expected output files for Nextflow
-        ln -s ${output_dir}/${library_id}_cellbender_output.h5 ${library_id}_cellbender_output.h5
-        ln -s ${output_dir}/${library_id}_cellbender_output_filtered.h5 ${library_id}_cellbender_output_filtered.h5
-
-        # Ensure success log exists
-        if [ ! -f "\$CB_LOG" ] || ! grep -q "STATUS=SUCCESS" "\$CB_LOG"; then
-            cat > "\$CB_LOG" <<EOF
-STATUS=SUCCESS
-DATE=\$(date '+%Y-%m-%d %H:%M:%S')
-LIBRARY_ID=${library_id}
-NOTE=Retroactively logged from existing output
-OUTPUT_DIR=${output_dir}
-EOF
-        fi
-
-        exit 0
-    fi
-
-    # ── If skip log exists but output is missing, invalidate it ──────────
-    if [ -f "\$CB_LOG" ] && grep -q "STATUS=SUCCESS" "\$CB_LOG"; then
-        echo "[WARNING] Success log exists but output is missing — re-running" | tee ${library_id}_cellbender.log
-        rm -f "\$CB_LOG"
-    fi
-
     # ── Validate input ───────────────────────────────────────────────────
     if [ ! -f "${raw_h5}" ]; then
         echo "[ERROR] Input file not found: ${raw_h5}" | tee ${library_id}_cellbender.log
         echo "[ERROR] CellRanger outs dir: ${outs_dir}" | tee -a ${library_id}_cellbender.log
-        echo "[ERROR] Contents:" | tee -a ${library_id}_cellbender.log
         ls -la ${outs_dir}/ 2>&1 | tee -a ${library_id}_cellbender.log
         exit 1
     fi
@@ -103,26 +63,10 @@ EOF
     echo "============================================"
     echo ""
 
-    if [ -f "\$CB_LOG" ]; then
-        echo "[WARNING] Previous CellBender run was not successful"
-        echo "[INFO] Re-running..."
-        cat "\$CB_LOG"
-        echo ""
-    fi
-
     if [ -d "${output_dir}" ]; then
-        EXISTING_DATE=\$(stat -c '%y' "${output_dir}" 2>/dev/null | cut -d' ' -f1)
-        EXISTING_SIZE=\$(du -sh "${output_dir}" 2>/dev/null | cut -f1)
-        echo "[WARNING] Existing CellBender output found (incomplete):"
-        echo "  Path : ${output_dir}"
-        echo "  Date : \${EXISTING_DATE}"
-        echo "  Size : \${EXISTING_SIZE}"
+        echo "[WARNING] Existing CellBender output at ${output_dir} will be overwritten"
         echo ""
-        echo "[INFO] This run will overwrite the existing output"
-    else
-        echo "[INFO] No existing output found at ${output_dir}"
     fi
-    echo ""
 
     echo "[INFO] Run parameters:"
     echo "  --input          : ${raw_h5}"
@@ -135,7 +79,7 @@ EOF
     echo "============================================"
     echo ""
 
-    apptainer exec --nv --writable-tmpfs --bind /ceph,/project,/ceph-fast/databank:/databank ${sif} \\
+    apptainer exec --nv --writable-tmpfs --bind ${params.container_binds} ${sif} \\
         cellbender remove-background \\
             --cuda \\
             --input ${raw_h5} \\
@@ -152,25 +96,13 @@ EOF
     ls -lh ${library_id}_cellbender_output*.h5
     echo ""
 
-    # Copy results to final output directory
+    # Publish results
+    rm -rf ${output_dir}
     mkdir -p ${output_dir}
     cp ${library_id}_cellbender_output*.h5 ${output_dir}/
 
-    OUTPUT_SIZE=\$(du -sh ${output_dir} 2>/dev/null | cut -f1)
-
     echo "[INFO] Results published to: ${output_dir}"
-    echo "[INFO] Total size: \${OUTPUT_SIZE}"
-
-    cat > "\$CB_LOG" <<EOF
-STATUS=SUCCESS
-DATE=\$(date '+%Y-%m-%d %H:%M:%S')
-LIBRARY_ID=${library_id}
-INPUT=${raw_h5}
-OUTPUT_DIR=${output_dir}
-OUTPUT_SIZE=\${OUTPUT_SIZE}
-EOF
-
-    echo "[INFO] CellBender log written to \$CB_LOG"
+    echo "[INFO] Total size: \$(du -sh ${output_dir} 2>/dev/null | cut -f1)"
     echo "============================================"
 
     } 2>&1 | tee ${library_id}_cellbender.log
@@ -195,11 +127,11 @@ process MERGE_CELLBENDER_LOGS {
     echo "================================================================" > 04_CellBender.log
     echo "  CELLBENDER REPORT" >> 04_CellBender.log
     echo "  Generated: \$(date '+%Y-%m-%d %H:%M:%S')" >> 04_CellBender.log
-    echo "  Samples processed: \$(ls -1 EGO_*_cellbender.log 2>/dev/null | wc -l)" >> 04_CellBender.log
+    echo "  Samples processed: \$(ls -1 *_cellbender.log 2>/dev/null | wc -l)" >> 04_CellBender.log
     echo "================================================================" >> 04_CellBender.log
     echo "" >> 04_CellBender.log
 
-    for LOG in \$(ls -1 EGO_*_cellbender.log 2>/dev/null | sort); do
+    for LOG in \$(ls -1 *_cellbender.log 2>/dev/null | sort); do
         cat \$LOG >> 04_CellBender.log
         echo "" >> 04_CellBender.log
         echo "" >> 04_CellBender.log

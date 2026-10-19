@@ -2,14 +2,13 @@ include { CREATE_CELLRANGER_LIBRARIES; MERGE_LIBRARIES_LOGS } from "${projectDir
 
 workflow CELLRANGER_LIBRARIES {
     take:
-    ch_fastqs      // tuple: [library_id, fastq_dir] (status stripped)
+    ch_fastqs      // tuple: [library_id, fastq_dir]
     libraries_dir  // val: path to CellRanger_Libraries folder
-    results_dir    // val: for downstream invalidation
     logs_dir       // val: path to logs directory
 
     main:
     ch_input = ch_fastqs.map { library_id, fastq_dir ->
-        tuple(library_id, fastq_dir, libraries_dir, results_dir)
+        tuple(library_id, fastq_dir, libraries_dir)
     }
 
     CREATE_CELLRANGER_LIBRARIES(ch_input)

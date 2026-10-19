@@ -3,7 +3,7 @@ process EXTRACT_RAW_DATA {
     label 'basic'
 
     input:
-    tuple val(library_id), val(tar_files), val(fastq_dir), val(libraries_dir), val(results_dir)
+    tuple val(library_id), val(tar_files), val(fastq_dir)
 
     output:
     tuple val(library_id), val(fastq_dir), emit: fastqs
@@ -11,44 +11,14 @@ process EXTRACT_RAW_DATA {
 
     script:
     """
+    set -o pipefail
     mkdir -p ${fastq_dir}
-
-    EXTRACTION_LOG="${fastq_dir}/.extraction_log"
 
     {
     echo "============================================"
     echo "  EXTRACT_RAW_DATA: ${library_id}"
     echo "  \$(date '+%Y-%m-%d %H:%M:%S')"
     echo "============================================"
-
-    # ── Check for successful previous extraction ─────────────────────────
-    if [ -f "\$EXTRACTION_LOG" ] && grep -q "STATUS=SUCCESS" "\$EXTRACTION_LOG"; then
-        PREV_DATE=\$(grep "DATE=" "\$EXTRACTION_LOG" | cut -d'=' -f2)
-        PREV_COUNT=\$(grep "FASTQ_COUNT=" "\$EXTRACTION_LOG" | cut -d'=' -f2)
-        echo "[SKIP] Previous successful extraction found"
-        echo "  Date       : \$PREV_DATE"
-        echo "  Fastq count: \$PREV_COUNT"
-        echo ""
-        echo "[INFO] Current files in ${fastq_dir}:"
-        ls -lh ${fastq_dir}/*.fastq.gz 2>/dev/null || echo "  (none)"
-        echo "============================================"
-        exit 0
-    fi
-
-    if [ -f "\$EXTRACTION_LOG" ]; then
-        echo "[WARNING] Previous extraction was not successful"
-        echo "[INFO] Re-extracting..."
-        echo ""
-    fi
-
-    echo "[INFO] No successful extraction log found — proceeding with extraction"
-
-    # ── Invalidate downstream logs since we're re-extracting ─────────────
-    echo "[INFO] Invalidating downstream logs for ${library_id}..."
-    rm -f "${libraries_dir}/.libraries_log_${library_id}"
-    rm -f "${results_dir}/.cellranger_count_log_${library_id}"
-    echo "[INFO] Downstream logs cleared"
-    echo ""
 
     IFS=';' read -ra TARS <<< "${tar_files}"
     TOTAL=\${#TARS[@]}
@@ -110,7 +80,6 @@ process EXTRACT_RAW_DATA {
         fi
 
         FASTQS_IN_TAR=\$(find \$SAMPLE_DIR -type f -name "*.fastq.gz")
-        FASTQ_COUNT=\$(echo "\$FASTQS_IN_TAR" | grep -c . || true)
         NEW=0
 
         for FQ in \$FASTQS_IN_TAR; do
@@ -157,47 +126,21 @@ process EXTRACT_RAW_DATA {
     echo "  MD5 failed           : \${TOTAL_FAILED}"
     echo "  Total fastqs in dir  : \${FINAL_COUNT}"
     echo "  Output directory     : ${fastq_dir}"
+    echo ""
+    echo "Final contents:"
+    ls -lh ${fastq_dir}/*.fastq.gz 2>/dev/null || echo "  (no fastq.gz files)"
 
     if [ "\$ALL_OK" = true ] && [ "\$TOTAL_EXTRACTED" -gt 0 ]; then
         echo ""
         echo "  *** ALL MD5 CHECKS PASSED ***"
         echo "============================================"
-
-        cat > "\$EXTRACTION_LOG" <<EOF
-STATUS=SUCCESS
-DATE=\$(date '+%Y-%m-%d %H:%M:%S')
-LIBRARY_ID=${library_id}
-FASTQ_COUNT=\${FINAL_COUNT}
-MD5_PASSED=\${TOTAL_PASSED}
-MD5_FAILED=0
-TAR_FILES=${tar_files}
-OUTPUT_DIR=${fastq_dir}
-EOF
-        echo "[INFO] Extraction log written to \$EXTRACTION_LOG"
     else
         echo ""
-        if [ "\$TOTAL_FAILED" -gt 0 ]; then
-            echo "  *** MD5 VERIFICATION FAILED ***"
-        fi
+        [ "\$TOTAL_FAILED" -gt 0 ] && echo "  *** MD5 VERIFICATION FAILED ***"
+        [ "\$TOTAL_EXTRACTED" -eq 0 ] && echo "  *** NO FASTQ FILES EXTRACTED ***"
         echo "============================================"
-
-        cat > "\$EXTRACTION_LOG" <<EOF
-STATUS=FAILED
-DATE=\$(date '+%Y-%m-%d %H:%M:%S')
-LIBRARY_ID=${library_id}
-FASTQ_COUNT=\${FINAL_COUNT}
-MD5_PASSED=\${TOTAL_PASSED}
-MD5_FAILED=\${TOTAL_FAILED}
-TAR_FILES=${tar_files}
-OUTPUT_DIR=${fastq_dir}
-EOF
-        echo "[ERROR] Extraction log written to \$EXTRACTION_LOG"
         exit 1
     fi
-
-    echo ""
-    echo "Final contents:"
-    ls -lh ${fastq_dir}/*.fastq.gz 2>/dev/null || echo "  (no fastq.gz files)"
 
     } 2>&1 | tee ${library_id}_extract.log
     """
@@ -220,11 +163,11 @@ process MERGE_EXTRACT_LOGS {
     echo "================================================================" > 01_Extract_raw_data.log
     echo "  EXTRACTION REPORT" >> 01_Extract_raw_data.log
     echo "  Generated: \$(date '+%Y-%m-%d %H:%M:%S')" >> 01_Extract_raw_data.log
-    echo "  Samples processed: \$(ls -1 EGO_*_extract.log 2>/dev/null | wc -l)" >> 01_Extract_raw_data.log
+    echo "  Samples processed: \$(ls -1 *_extract.log 2>/dev/null | wc -l)" >> 01_Extract_raw_data.log
     echo "================================================================" >> 01_Extract_raw_data.log
     echo "" >> 01_Extract_raw_data.log
 
-    for LOG in \$(ls -1 EGO_*_extract.log 2>/dev/null | sort); do
+    for LOG in \$(ls -1 *_extract.log 2>/dev/null | sort); do
         cat \$LOG >> 01_Extract_raw_data.log
         echo "" >> 01_Extract_raw_data.log
         echo "" >> 01_Extract_raw_data.log

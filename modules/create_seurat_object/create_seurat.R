@@ -2,29 +2,29 @@
 
 # ─── Create Seurat Object ───────────────────────────────────────────────────
 # Builds a Seurat object with:
-#   - RNA assay          : CellRanger filtered counts
-#   - RNA_cellbender     : CellBender corrected counts (subset to CellRanger barcodes)
-#   - Souporcell metadata: souporcell_status and souporcell_assignment from clusters.tsv
+#   - RNA assay (Assay5) with layers:
+#       counts / RNA_raw_counts : CellRanger filtered counts
+#       RNA_cellbender_counts   : CellBender corrected counts (aligned to CellRanger grid)
+#   - Souporcell metadata  : souporcell_status and souporcell_assignment from clusters.tsv
+#   - Sample-sheet metadata: every non-path column of the sample sheet, one value per cell
 
-# ─── Set library path explicitly ────────────────────────────────────────────
-.libPaths("/project/meadlab/shared/01__Resources/01__Singularity_Containers/RStudio/RStudio_v4.4.1/RStudio_v4.4.1.packages")
-cat("R library paths:\n")
-cat(paste(" ", .libPaths(), collapse = "\n"), "\n\n")
+# Runs inside the satijalab/seurat container (R 4.5, Seurat 5, hdf5r, jsonlite).
+cat("R", R.version.string, "| Seurat", as.character(packageVersion("Seurat")), "\n\n")
 
 args <- commandArgs(trailingOnly = TRUE)
-if (length(args) != 4) {
-    stop("Usage: create_seurat.R <library_id> <cellranger_outs> <cellbender_dir> <souporcell_dir>")
+if (length(args) != 5) {
+    stop("Usage: create_seurat.R <library_id> <cellranger_outs> <cellbender_dir> <souporcell_dir> <metadata_json>")
 }
 
 library_id      <- args[1]
 cellranger_outs <- args[2]
 cellbender_dir  <- args[3]
 souporcell_dir  <- args[4]
+metadata_json   <- args[5]
 
 # Auto-discover CellBender filtered h5 file
 cb_h5_candidates <- list.files(cellbender_dir, pattern = "filtered.*\\.h5$", full.names = TRUE)
 if (length(cb_h5_candidates) == 0) {
-    # Fallback: look for any h5 file
     cb_h5_candidates <- list.files(cellbender_dir, pattern = "\\.h5$", full.names = TRUE)
 }
 if (length(cb_h5_candidates) == 0) {
@@ -38,14 +38,42 @@ cat("CellRanger outs :", cellranger_outs, "\n")
 cat("CellBender dir  :", cellbender_dir, "\n")
 cat("CellBender h5   :", cellbender_h5, "\n")
 cat("Souporcell dir  :", souporcell_dir, "\n")
+cat("Metadata JSON   :", metadata_json, "\n")
 
 suppressPackageStartupMessages({
     library(Seurat)
-    library(scCustomize)
+    library(Matrix)
+    library(hdf5r)
+    library(jsonlite)
 })
 
-# ─── 1. RNA assay from CellRanger filtered matrix ───────────────────────────
-cat("\n[1/4] Loading CellRanger filtered matrix...\n")
+# ─── CellBender h5 reader (10x v3 layout; replaces scCustomize::Read_CellBender_h5_Mat)
+read_cellbender_h5 <- function(file_name) {
+    h5 <- H5File$new(file_name, mode = "r")
+    on.exit(h5$close_all())
+    g <- h5[["matrix"]]
+    feature_names <- g[["features/name"]][]
+    feature_ids   <- g[["features/id"]][]
+    barcodes      <- g[["barcodes"]][]
+    dims          <- g[["shape"]][]
+    mat <- sparseMatrix(
+        i        = g[["indices"]][] + 1,
+        p        = g[["indptr"]][],
+        x        = as.numeric(g[["data"]][]),
+        dims     = dims,
+        dimnames = list(make.unique(feature_names), barcodes),
+        repr     = "C"
+    )
+    attr(mat, "feature_ids") <- feature_ids
+    mat
+}
+
+# ─── 1. RNA assay (Assay5) from CellRanger filtered matrix ─────────────────
+# Layer layout mirrors the AnnData object:
+#   counts               : CellRanger raw counts (Seurat's required default layer, = AnnData X)
+#   RNA_raw_counts       : CellRanger raw counts
+#   RNA_cellbender_counts: CellBender corrected counts, aligned to the full feature x barcode grid
+cat("\n[1/5] Loading CellRanger filtered matrix...\n")
 cr_matrix <- Read10X(data.dir = file.path(cellranger_outs, "filtered_feature_bc_matrix"))
 seurat_obj <- CreateSeuratObject(
     counts   = cr_matrix,
@@ -54,58 +82,57 @@ seurat_obj <- CreateSeuratObject(
 )
 cat("  Barcodes:", ncol(seurat_obj), "| Features:", nrow(seurat_obj), "\n")
 
-# Keep the CellRanger barcode set for subsetting CellBender
 cr_barcodes <- colnames(seurat_obj)
+cr_features <- rownames(seurat_obj)
 
-# ─── 2. RNA_cellbender assay from CellBender output ─────────────────────────
-cat("\n[2/4] Loading CellBender output...\n")
-cb_matrix <- Read_CellBender_h5_Mat(file_name = cellbender_h5)
+LayerData(seurat_obj, assay = "RNA", layer = "RNA_raw_counts") <- LayerData(seurat_obj, assay = "RNA", layer = "counts")
+cat("  RNA_raw_counts layer added.\n")
 
-# Subset CellBender matrix to CellRanger barcodes only
+# ─── 2. RNA_cellbender_counts layer from CellBender output ──────────────────
+cat("\n[2/5] Loading CellBender output...\n")
+cb_matrix <- read_cellbender_h5(cellbender_h5)
+
 shared_barcodes <- intersect(cr_barcodes, colnames(cb_matrix))
+shared_features <- intersect(cr_features, rownames(cb_matrix))
 cat("  CellBender total barcodes:", ncol(cb_matrix), "\n")
 cat("  Shared with CellRanger   :", length(shared_barcodes), "\n")
+cat("  Shared features          :", length(shared_features), "\n")
 
 if (length(shared_barcodes) == 0) {
     stop("ERROR: No overlapping barcodes between CellRanger and CellBender outputs.")
 }
 
-cb_matrix <- cb_matrix[, shared_barcodes]
-
-# Ensure feature order matches, fill missing features with zeros
-shared_features <- intersect(rownames(seurat_obj), rownames(cb_matrix))
-cat("  Shared features          :", length(shared_features), "\n")
-
-# Subset both to shared features for the CellBender assay
-cb_matrix_aligned <- cb_matrix[shared_features, cr_barcodes[cr_barcodes %in% shared_barcodes]]
-
-# For barcodes in CellRanger but not in CellBender, fill with zeros
-if (length(cr_barcodes) > length(shared_barcodes)) {
-    missing_barcodes <- setdiff(cr_barcodes, shared_barcodes)
+missing_barcodes <- setdiff(cr_barcodes, shared_barcodes)
+missing_features <- setdiff(cr_features, shared_features)
+if (length(missing_barcodes) > 0)
     cat("  Barcodes in CellRanger but not CellBender:", length(missing_barcodes), "(filled with zeros)\n")
-    zero_mat <- Matrix::sparseMatrix(
-        i      = integer(0),
-        j      = integer(0),
-        x      = numeric(0),
-        dims   = c(length(shared_features), length(missing_barcodes)),
-        dimnames = list(shared_features, missing_barcodes)
-    )
-    cb_matrix_aligned <- cbind(cb_matrix_aligned, zero_mat)
-}
+if (length(missing_features) > 0)
+    cat("  Features in CellRanger but not CellBender:", length(missing_features), "(filled with zeros)\n")
 
-# Reorder to match Seurat object barcodes
-cb_matrix_aligned <- cb_matrix_aligned[, cr_barcodes]
+# Build a full feature x barcode sparse matrix in CellRanger order, zero-filled
+cb_sub <- as(cb_matrix[shared_features, shared_barcodes, drop = FALSE], "TsparseMatrix")
+cb_aligned <- sparseMatrix(
+    i        = match(rownames(cb_sub), cr_features)[cb_sub@i + 1],
+    j        = match(colnames(cb_sub), cr_barcodes)[cb_sub@j + 1],
+    x        = cb_sub@x,
+    dims     = c(length(cr_features), length(cr_barcodes)),
+    dimnames = list(cr_features, cr_barcodes),
+    repr     = "C"
+)
 
-seurat_obj[["RNA_cellbender"]] <- CreateAssayObject(counts = cb_matrix_aligned)
-cat("  RNA_cellbender assay added.\n")
+LayerData(seurat_obj, assay = "RNA", layer = "RNA_cellbender_counts") <- cb_aligned
+cat("  RNA_cellbender_counts layer added.\n")
 
 # ─── 3. Souporcell metadata ─────────────────────────────────────────────────
-cat("\n[3/4] Loading Souporcell clusters.tsv...\n")
+cat("\n[3/5] Loading Souporcell clusters.tsv...\n")
+
+souporcell_status     <- rep(NA_character_, length(cr_barcodes))
+souporcell_assignment <- rep(NA_character_, length(cr_barcodes))
+names(souporcell_status)     <- cr_barcodes
+names(souporcell_assignment) <- cr_barcodes
 
 if (souporcell_dir == "NONE") {
     cat("  Souporcell not run for this sample (k=1), setting metadata to NA.\n")
-    seurat_obj$souporcell_status     <- NA_character_
-    seurat_obj$souporcell_assignment <- NA_character_
 } else {
     clusters_file <- file.path(souporcell_dir, "clusters.tsv")
 
@@ -113,42 +140,41 @@ if (souporcell_dir == "NONE") {
         sc_clusters <- read.delim(clusters_file, stringsAsFactors = FALSE)
         cat("  Souporcell barcodes:", nrow(sc_clusters), "\n")
 
-        # Match barcodes
         rownames(sc_clusters) <- sc_clusters$barcode
         shared_sc <- intersect(cr_barcodes, rownames(sc_clusters))
         cat("  Shared with CellRanger:", length(shared_sc), "\n")
 
-        # Add status and assignment as metadata columns
-        souporcell_status     <- rep(NA_character_, length(cr_barcodes))
-        souporcell_assignment <- rep(NA_character_, length(cr_barcodes))
-        names(souporcell_status)     <- cr_barcodes
-        names(souporcell_assignment) <- cr_barcodes
-
-        souporcell_status[shared_sc]     <- sc_clusters[shared_sc, "status"]
-        souporcell_assignment[shared_sc] <- sc_clusters[shared_sc, "assignment"]
-
-        seurat_obj$souporcell_status     <- souporcell_status
-        seurat_obj$souporcell_assignment <- souporcell_assignment
-
+        souporcell_status[shared_sc]     <- as.character(sc_clusters[shared_sc, "status"])
+        souporcell_assignment[shared_sc] <- as.character(sc_clusters[shared_sc, "assignment"])
         cat("  Souporcell metadata added (souporcell_status, souporcell_assignment).\n")
     } else {
         warning("Souporcell clusters.tsv not found at: ", clusters_file)
-        seurat_obj$souporcell_status     <- NA_character_
-        seurat_obj$souporcell_assignment <- NA_character_
     }
 }
 
-# ─── 4. Save Seurat object ──────────────────────────────────────────────────
-cat("\n[4/4] Saving Seurat object...\n")
+seurat_obj$souporcell_status     <- souporcell_status
+seurat_obj$souporcell_assignment <- souporcell_assignment
+
+# ─── 4. Sample-sheet metadata ───────────────────────────────────────────────
+cat("\n[4/5] Adding sample-sheet metadata...\n")
+sheet_meta <- fromJSON(metadata_json)
+for (col in names(sheet_meta)) {
+    value <- sheet_meta[[col]]
+    if (is.null(value) || identical(value, "")) value <- NA_character_
+    seurat_obj[[col]] <- as.character(value)
+    cat("  ", col, ":", as.character(value), "\n")
+}
+
+# ─── 5. Save Seurat object ──────────────────────────────────────────────────
+cat("\n[5/5] Saving Seurat object...\n")
 output_file <- paste0(library_id, "_seurat.rds")
 saveRDS(seurat_obj, file = output_file)
 cat("  Saved to:", output_file, "\n")
 
-# Summary
 cat("\n=== Summary ===\n")
-cat("Assays         :", paste(Assays(seurat_obj), collapse = ", "), "\n")
+cat("Assay          :", DefaultAssay(seurat_obj), "(", class(seurat_obj[["RNA"]])[1], ")\n")
+cat("Layers         :", paste(Layers(seurat_obj[["RNA"]]), collapse = ", "), "\n")
 cat("Cells          :", ncol(seurat_obj), "\n")
-cat("RNA features   :", nrow(seurat_obj[["RNA"]]), "\n")
-cat("CB features    :", nrow(seurat_obj[["RNA_cellbender"]]), "\n")
-cat("Metadata cols  :", paste(colnames(seurat_obj@meta.data), collapse = ", "), "\n")
+cat("Features       :", nrow(seurat_obj[["RNA"]]), "\n")
+cat("Metadata cols  :", paste(colnames(seurat_obj[[]]), collapse = ", "), "\n")
 cat("Done.\n")
