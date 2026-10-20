@@ -90,6 +90,8 @@ tail -f .nextflow.log
 
 Use `sbatch start_pipeline.sh` instead if your login node kills long-running processes. Both share `run/` and `work/`, so either can resume the other's run.
 
+`start_pipeline.sh` also runs a watchdog: if Nextflow's Slurm task monitor goes silent for 90 min while the process is still alive (a blocked `squeue` call can freeze it indefinitely — it happened once with 14 jobs in flight), it kills Nextflow and relaunches with `-resume`, up to five times. Finished tasks are cached, so a relaunch costs nothing; the event is logged as `[WATCHDOG]` in the Slurm job output. The executor polling intervals in `nextflow.config` are set conservatively for the same reason.
+
 **5. Collect your objects.** Each library gets its own folder with the finished object, ready to load:
 
 - Seurat: `<seurat_results>/<library_id>/<library_id>_seurat.rds`

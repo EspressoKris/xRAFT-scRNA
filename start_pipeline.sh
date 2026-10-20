@@ -49,11 +49,42 @@ RUN_DIR="${PIPELINE_DIR}/run"
 mkdir -p "${RUN_DIR}"
 cd "${RUN_DIR}"
 
-nextflow run "${PIPELINE_DIR}/main.nf" \
-    -resume \
-    -w "${PIPELINE_DIR}/work" \
-    "$@"
-STATUS=$?
+# ── Run Nextflow under a watchdog ────────────────────────────────────────────
+# If the Slurm task monitor stops polling (no "Task monitor" log line for
+# STALL_MINUTES while the process is still alive), kill Nextflow and relaunch
+# with -resume. Finished tasks are cached, so nothing is recomputed.
+STALL_MINUTES=90
+MAX_RELAUNCH=5
+NF_LOG="${RUN_DIR}/.nextflow.log"
+STATUS=1
+
+for attempt in $(seq 0 ${MAX_RELAUNCH}); do
+    [ "$attempt" -gt 0 ] && echo "[WATCHDOG] relaunch ${attempt}/${MAX_RELAUNCH} at $(date '+%F %T')"
+    nextflow run "${PIPELINE_DIR}/main.nf" -resume -w "${PIPELINE_DIR}/work" "$@" &
+    NF_PID=$!
+
+    while kill -0 "$NF_PID" 2>/dev/null; do
+        sleep 300
+        [ -f "$NF_LOG" ] || continue
+        last_poll=$(grep -E "\[Task monitor\]" "$NF_LOG" | tail -1 | cut -c1-19)
+        [ -n "$last_poll" ] || continue
+        last_epoch=$(date -d "${last_poll/-/ } $(date +%Y)" +%s 2>/dev/null) || continue
+        age=$(( ($(date +%s) - last_epoch) / 60 ))
+        if [ "$age" -ge "$STALL_MINUTES" ]; then
+            echo "[WATCHDOG] task monitor silent for ${age} min (last: ${last_poll}); killing Nextflow pid ${NF_PID}"
+            kill "$NF_PID" 2>/dev/null; sleep 30; kill -9 "$NF_PID" 2>/dev/null
+            wait "$NF_PID" 2>/dev/null
+            STATUS=75   # EX_TEMPFAIL -> relaunch
+            break
+        fi
+    done
+
+    if [ "$STATUS" -ne 75 ]; then
+        wait "$NF_PID"; STATUS=$?
+        break
+    fi
+    STATUS=1
+done
 
 # Slurm profiling dumps (sps-<jobid>.tar.gz) land in the submit directory;
 # file them with the job logs.
