@@ -130,11 +130,11 @@ process MERGE_CELLBENDER_LOGS {
     echo "================================================================" > 04_CellBender.log
     echo "  CELLBENDER REPORT" >> 04_CellBender.log
     echo "  Generated: \$(date '+%Y-%m-%d %H:%M:%S')" >> 04_CellBender.log
-    echo "  Samples processed: \$(ls -1 *_cellbender.log 2>/dev/null | wc -l)" >> 04_CellBender.log
+    echo "  Samples processed: \$(ls -1 ${log_files} | wc -l)" >> 04_CellBender.log
     echo "================================================================" >> 04_CellBender.log
     echo "" >> 04_CellBender.log
 
-    for LOG in \$(ls -1 *_cellbender.log 2>/dev/null | sort); do
+    for LOG in \$(ls -1 ${log_files} | sort); do
         cat \$LOG >> 04_CellBender.log
         echo "" >> 04_CellBender.log
         echo "" >> 04_CellBender.log

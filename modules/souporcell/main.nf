@@ -154,11 +154,11 @@ process MERGE_SOUPORCELL_LOGS {
     echo "================================================================" > 05_Souporcell.log
     echo "  SOUPORCELL REPORT" >> 05_Souporcell.log
     echo "  Generated: \$(date '+%Y-%m-%d %H:%M:%S')" >> 05_Souporcell.log
-    echo "  Samples processed: \$(ls -1 *_souporcell.log 2>/dev/null | wc -l)" >> 05_Souporcell.log
+    echo "  Samples processed: \$(ls -1 ${log_files} | wc -l)" >> 05_Souporcell.log
     echo "================================================================" >> 05_Souporcell.log
     echo "" >> 05_Souporcell.log
 
-    for LOG in \$(ls -1 *_souporcell.log 2>/dev/null | sort); do
+    for LOG in \$(ls -1 ${log_files} | sort); do
         cat \$LOG >> 05_Souporcell.log
         echo "" >> 05_Souporcell.log
         echo "" >> 05_Souporcell.log

@@ -80,7 +80,7 @@ Any extra columns you add (for example `experiment` or `batch_10x`) are copied i
 
 Then log off. The pipeline queues every step on Slurm, runs the libraries in parallel and finishes on its own; a pooled library takes around 8 hours, so a batch is usually ready the next morning.
 
-You can also start it from the console instead of through Slurm — Nextflow only coordinates, the work still runs as Slurm jobs. Always launch from `run/` so `-resume` finds its cache, and use `-bg` so the coordinator survives logout:
+You can also start it from the console instead of through Slurm — Nextflow only coordinates, the work still runs as Slurm jobs. Always launch from `run/` so `-resume` finds its cache and use `-bg` so the coordinator survives logout:
 
 ```bash
 module load nextflow/25.04.7
@@ -99,7 +99,7 @@ Use `sbatch start_pipeline.sh` instead if your login node kills long-running pro
 
 The objects hold raw and CellBender-corrected counts (Seurat v5: one `RNA` assay with `RNA_raw_counts` and `RNA_cellbender_counts` layers; AnnData: `X`/`layers["RNA_raw_counts"]` and `layers["RNA_cellbender_counts"]`), the Souporcell status and donor assignment for pooled libraries, and your sample-sheet columns, so analysis can start straight away.
 
-**If something goes wrong,** submit the same command again. Nextflow's `-resume` reuses every step that already finished and only reruns what is missing (the resume cache lives in `run/`, so keep that folder). The per-step logs are in `logs/` (`01_Extract_raw_data.log` … `08_Validation.log`), and `reports/pipeline_report.html` shows what ran and how long it took. To force a step to rerun, delete its entry from `work/` or run with `-resume` removed.
+**If something goes wrong,** submit the same command again. Nextflow's `-resume` reuses every step that already finished and only reruns what is missing (the resume cache lives in `run/`, so keep that folder). If Nextflow reports `Can't open cache DB`, the launcher moves that cache aside (`run/.nextflow/cache.broken.<date>`) and relaunches with a fresh one; already-finished steps are then recomputed once. The per-step logs are in `logs/` (`01_Extract_raw_data.log` … `08_Validation.log`), and `reports/pipeline_report.html` shows what ran and how long it took. To force a step to rerun, delete its entry from `work/` or run with `-resume` removed.
 
 **Validation.** Step 8 fails the run if an object is wrong: every layer must have the Cell Ranger barcodes and features in order, raw counts must sum to the Cell Ranger matrix, CellBender counts must be ≤ raw counts cell-by-cell, Souporcell columns must match `clusters.tsv`, every sample-sheet column must be present with one value, and when both formats are built the `.rds` and `.h5ad` must agree on all of it. The report is `logs/08_Validation.log`.
 
@@ -163,7 +163,7 @@ Why these versions: CellBender 0.3.2 and the Souporcell 2021.03 build (commit `1
 | Scanpy | container (`gcfntnu/scanpy`, pulled once by the pipeline) | AnnData object output and validation |
 | References | Cell Ranger transcriptome, reference FASTA, common-variants VCF | Counting and Souporcell |
 
-Module names are set in `start_pipeline.sh` and `nextflow.config`; container images and bind mounts are `params.cellbender_container`, `params.souporcell_container`, `params.seurat_container`, `params.scanpy_container` and `params.container_binds`. Result directories and references live in [nextflow.config](nextflow.config) (`params.samplesheet`, `params.cellranger_results`, `params.souporcell_results`, `params.cellbender_results`, `params.seurat_results`, `params.anndata_results`, `params.transcriptome`, `params.ref_fasta`, `params.common_variants`, `params.logs_dir`); map the Slurm labels `basic`, `build`, `long` and `gpu` to your partitions. The wrapper launches Nextflow from `run/` with `-resume` and `-w work/`; extra arguments are passed through (`sbatch start_pipeline.sh --output_format scanpy`). `nextflow run main.nf -resume` from a fixed directory works too.
+Module names are set in `start_pipeline.sh` and `nextflow.config`; container images and bind mounts are `params.cellbender_container`, `params.souporcell_container`, `params.seurat_container`, `params.scanpy_container` and `params.container_binds`. Result directories and references live in [nextflow.config](nextflow.config) (`params.samplesheet`, `params.cellranger_results`, `params.souporcell_results`, `params.cellbender_results`, `params.seurat_results`, `params.anndata_results`, `params.transcriptome`, `params.ref_fasta`, `params.common_variants`, `params.logs_dir`); map the Slurm labels `basic`, `extract`, `build`, `long` and `gpu` to your partitions. The wrapper launches Nextflow from `run/` with `-resume` and `-w work/`; extra arguments are passed through (`sbatch start_pipeline.sh --output_format scanpy`). `nextflow run main.nf -resume` from a fixed directory works too.
 
 ---
 

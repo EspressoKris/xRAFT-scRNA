@@ -80,11 +80,11 @@ process MERGE_LIBRARIES_LOGS {
     echo "================================================================" > 02_CellRanger_libraries.log
     echo "  CELLRANGER LIBRARIES REPORT" >> 02_CellRanger_libraries.log
     echo "  Generated: \$(date '+%Y-%m-%d %H:%M:%S')" >> 02_CellRanger_libraries.log
-    echo "  Samples processed: \$(ls -1 *_libraries.log 2>/dev/null | wc -l)" >> 02_CellRanger_libraries.log
+    echo "  Samples processed: \$(ls -1 ${logs} | wc -l)" >> 02_CellRanger_libraries.log
     echo "================================================================" >> 02_CellRanger_libraries.log
     echo "" >> 02_CellRanger_libraries.log
 
-    for LOG in \$(ls -1 *_libraries.log 2>/dev/null | sort); do
+    for LOG in \$(ls -1 ${logs} | sort); do
         cat \$LOG >> 02_CellRanger_libraries.log
         echo "" >> 02_CellRanger_libraries.log
         echo "" >> 02_CellRanger_libraries.log

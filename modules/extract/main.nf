@@ -1,6 +1,6 @@
 process EXTRACT_RAW_DATA {
     tag "${library_id}"
-    label 'basic'
+    label 'extract'
 
     input:
     tuple val(library_id), val(tar_files), val(fastq_dir)
@@ -163,11 +163,11 @@ process MERGE_EXTRACT_LOGS {
     echo "================================================================" > 01_Extract_raw_data.log
     echo "  EXTRACTION REPORT" >> 01_Extract_raw_data.log
     echo "  Generated: \$(date '+%Y-%m-%d %H:%M:%S')" >> 01_Extract_raw_data.log
-    echo "  Samples processed: \$(ls -1 *_extract.log 2>/dev/null | wc -l)" >> 01_Extract_raw_data.log
+    echo "  Samples processed: \$(ls -1 ${logs} | wc -l)" >> 01_Extract_raw_data.log
     echo "================================================================" >> 01_Extract_raw_data.log
     echo "" >> 01_Extract_raw_data.log
 
-    for LOG in \$(ls -1 *_extract.log 2>/dev/null | sort); do
+    for LOG in \$(ls -1 ${logs} | sort); do
         cat \$LOG >> 01_Extract_raw_data.log
         echo "" >> 01_Extract_raw_data.log
         echo "" >> 01_Extract_raw_data.log

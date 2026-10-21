@@ -100,11 +100,11 @@ process MERGE_CREATE_SEURAT_LOGS {
     echo "================================================================" > 06_Seurat.log
     echo "  SEURAT OBJECT REPORT" >> 06_Seurat.log
     echo "  Generated: \$(date '+%Y-%m-%d %H:%M:%S')" >> 06_Seurat.log
-    echo "  Samples processed: \$(ls -1 *_seurat.log 2>/dev/null | wc -l)" >> 06_Seurat.log
+    echo "  Samples processed: \$(ls -1 ${log_files} | wc -l)" >> 06_Seurat.log
     echo "================================================================" >> 06_Seurat.log
     echo "" >> 06_Seurat.log
 
-    for LOG in \$(ls -1 *_seurat.log 2>/dev/null | sort); do
+    for LOG in \$(ls -1 ${log_files} | sort); do
         cat \$LOG >> 06_Seurat.log
         echo "" >> 06_Seurat.log
         echo "" >> 06_Seurat.log

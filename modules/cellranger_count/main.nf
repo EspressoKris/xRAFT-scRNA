@@ -113,11 +113,11 @@ process MERGE_COUNT_LOGS {
     echo "================================================================" > 03_CellRanger_count.log
     echo "  CELLRANGER COUNT REPORT" >> 03_CellRanger_count.log
     echo "  Generated: \$(date '+%Y-%m-%d %H:%M:%S')" >> 03_CellRanger_count.log
-    echo "  Samples processed: \$(ls -1 *_count.log 2>/dev/null | wc -l)" >> 03_CellRanger_count.log
+    echo "  Samples processed: \$(ls -1 ${logs} | wc -l)" >> 03_CellRanger_count.log
     echo "================================================================" >> 03_CellRanger_count.log
     echo "" >> 03_CellRanger_count.log
 
-    for LOG in \$(ls -1 *_count.log 2>/dev/null | sort); do
+    for LOG in \$(ls -1 ${logs} | sort); do
         cat \$LOG >> 03_CellRanger_count.log
         echo "" >> 03_CellRanger_count.log
         echo "" >> 03_CellRanger_count.log

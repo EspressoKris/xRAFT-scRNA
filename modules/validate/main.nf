@@ -118,12 +118,12 @@ process MERGE_VALIDATION_LOGS {
     echo "================================================================" > 08_Validation.log
     echo "  OBJECT VALIDATION REPORT" >> 08_Validation.log
     echo "  Generated: \$(date '+%Y-%m-%d %H:%M:%S')" >> 08_Validation.log
-    echo "  Checks run: \$(ls -1 *.log 2>/dev/null | grep -v '^08_' | wc -l)" >> 08_Validation.log
-    echo "  Failures  : \$(grep -l '\\[FAIL\\]' *_validate_*.log *_compare.log 2>/dev/null | wc -l)" >> 08_Validation.log
+    echo "  Checks run: \$(ls -1 ${log_files} | wc -l)" >> 08_Validation.log
+    echo "  Failures  : \$(grep -l '\\[FAIL\\]' ${log_files} 2>/dev/null | wc -l)" >> 08_Validation.log
     echo "================================================================" >> 08_Validation.log
     echo "" >> 08_Validation.log
 
-    for LOG in \$(ls -1 *_validate_seurat.log *_validate_anndata.log *_compare.log 2>/dev/null | sort); do
+    for LOG in \$(ls -1 ${log_files} | sort); do
         cat \$LOG >> 08_Validation.log
         echo "" >> 08_Validation.log
         echo "" >> 08_Validation.log

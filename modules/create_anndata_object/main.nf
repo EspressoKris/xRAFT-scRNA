@@ -100,11 +100,11 @@ process MERGE_CREATE_ANNDATA_LOGS {
     echo "================================================================" > 07_AnnData.log
     echo "  ANNDATA OBJECT REPORT" >> 07_AnnData.log
     echo "  Generated: \$(date '+%Y-%m-%d %H:%M:%S')" >> 07_AnnData.log
-    echo "  Samples processed: \$(ls -1 *_anndata.log 2>/dev/null | wc -l)" >> 07_AnnData.log
+    echo "  Samples processed: \$(ls -1 ${log_files} | wc -l)" >> 07_AnnData.log
     echo "================================================================" >> 07_AnnData.log
     echo "" >> 07_AnnData.log
 
-    for LOG in \$(ls -1 *_anndata.log 2>/dev/null | sort); do
+    for LOG in \$(ls -1 ${log_files} | sort); do
         cat \$LOG >> 07_AnnData.log
         echo "" >> 07_AnnData.log
         echo "" >> 07_AnnData.log
